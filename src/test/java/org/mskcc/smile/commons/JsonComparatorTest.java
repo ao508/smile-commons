@@ -411,6 +411,37 @@ public class JsonComparatorTest {
     }
 
     /**
+     * A serialized SmileRequest carries its samples as SmileSample objects under smileSampleList.
+     * Samples are compared (by latest metadata, in primary id order), so list order and metadata
+     * history do not matter but a change to a sample's current metadata does.
+     */
+    @Test
+    public void testSmileRequestSamplesComparedByLatestMetadata() throws Exception {
+        String existing = "{\"igoRequestId\":\"R\",\"smileSampleList\":["
+                + "{\"smileSampleId\":\"u2\",\"latestSampleMetadata\":{\"primaryId\":\"B\",\"sex\":\"M\"},"
+                + "\"sampleMetadataList\":[{\"primaryId\":\"B\",\"sex\":\"F\"},"
+                + "{\"primaryId\":\"B\",\"sex\":\"M\"}]},"
+                + "{\"smileSampleId\":\"u1\",\"latestSampleMetadata\":{\"primaryId\":\"A\",\"sex\":\"F\"},"
+                + "\"sampleMetadataList\":[{\"primaryId\":\"A\",\"sex\":\"F\"}]}]}";
+        String incoming = "{\"igoRequestId\":\"R\",\"smileSampleList\":["
+                + "{\"latestSampleMetadata\":{\"primaryId\":\"A\",\"sex\":\"F\"},"
+                + "\"sampleMetadataList\":[{\"primaryId\":\"A\",\"sex\":\"F\"}]},"
+                + "{\"latestSampleMetadata\":{\"primaryId\":\"B\",\"sex\":\"M\"},"
+                + "\"sampleMetadataList\":[{\"primaryId\":\"B\",\"sex\":\"M\"}]}]}";
+        Assertions.assertTrue(jsonComparator.isConsistent(existing, incoming));
+
+        String incomingSampleUpdate = incoming.replace(
+                "\"latestSampleMetadata\":{\"primaryId\":\"B\",\"sex\":\"M\"}",
+                "\"latestSampleMetadata\":{\"primaryId\":\"B\",\"sex\":\"F\"}");
+        Assertions.assertNotEquals(incoming, incomingSampleUpdate);
+        Assertions.assertFalse(jsonComparator.isConsistent(existing, incomingSampleUpdate));
+
+        String incomingMissingSample = "{\"igoRequestId\":\"R\",\"smileSampleList\":["
+                + "{\"latestSampleMetadata\":{\"primaryId\":\"A\",\"sex\":\"F\"}}]}";
+        Assertions.assertFalse(jsonComparator.isConsistent(existing, incomingMissingSample));
+    }
+
+    /**
      * Mismatched sample lists are reported as inconsistent rather than throwing.
      */
     @Test

@@ -36,6 +36,10 @@ public class JsonComparatorImpl implements JsonComparator {
     private static final Log LOG = LogFactory.getLog(JsonComparatorImpl.class);
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final String SAMPLES = "samples";
+    /** SmileRequest serializes its samples as SmileSample objects under this key. */
+    private static final String SMILE_SAMPLES = "smileSampleList";
+    /** SmileSample's serialized current metadata (its sampleMetadataList holds the full history). */
+    private static final String LATEST_SAMPLE_METADATA = "latestSampleMetadata";
 
     private static final Set<String> DEFAULT_IGNORED_FIELDS = Set.of(
             "smileRequestId", "smileSampleId", "smilePatientId", "requestJson", "importDate",
@@ -173,8 +177,11 @@ public class JsonComparatorImpl implements JsonComparator {
         ObjectNode record = profile.standardize()
                 ? toUniversalSchema((ObjectNode) node) : (ObjectNode) node;
         ObjectNode out = MAPPER.createObjectNode();
-        if (record.has(SAMPLES) && !profile.ignored().contains(SAMPLES)) {
-            putIfPresent(out, SAMPLES, normalizeSamples(record.get(SAMPLES), profile));
+        // raw request JSON uses "samples", a serialized SmileRequest uses "smileSampleList";
+        // both normalize to "samples" so either shape can be compared with the other
+        JsonNode samples = record.has(SAMPLES) ? record.get(SAMPLES) : record.get(SMILE_SAMPLES);
+        if (samples != null && !profile.ignored().contains(SAMPLES)) {
+            putIfPresent(out, SAMPLES, normalizeSamples(samples, profile));
         }
         if (profile.igoOwnedOnly()) {
             // projection keyed by path, e.g. "additionalProperties.altId"
@@ -185,7 +192,8 @@ public class JsonComparatorImpl implements JsonComparator {
         }
         for (Map.Entry<String, JsonNode> entry : record.properties()) {
             String field = entry.getKey();
-            if (!field.equals(SAMPLES) && !profile.ignored().contains(field)) {
+            if (!field.equals(SAMPLES) && !field.equals(SMILE_SAMPLES)
+                    && !profile.ignored().contains(field)) {
                 putIfPresent(out, field, normalizeValue(entry.getValue(), profile));
             }
         }
@@ -202,13 +210,17 @@ public class JsonComparatorImpl implements JsonComparator {
         return record.has("primaryId") || record.has("igoId");
     }
 
-    /** Normalizes each sample as a record and orders them by primary id. */
+    /**
+     * Normalizes each sample as a record and orders them by primary id. A SmileSample element is
+     * reduced to its latest metadata, since its metadata history is not part of the request's data.
+     */
     private JsonNode normalizeSamples(JsonNode samples, Profile profile) {
         if (!samples.isArray()) {
             return normalizeValue(samples, profile);
         }
         List<JsonNode> sorted = new ArrayList<>();
-        samples.forEach(sorted::add);
+        samples.forEach(sample -> sorted.add(sample.has(LATEST_SAMPLE_METADATA)
+                ? sample.get(LATEST_SAMPLE_METADATA) : sample));
         sorted.sort(Comparator.comparing(JsonComparatorImpl::sampleId));
         ArrayNode out = MAPPER.createArrayNode();
         sorted.forEach(sample -> out.add(normalizeRecord(sample, profile)));
